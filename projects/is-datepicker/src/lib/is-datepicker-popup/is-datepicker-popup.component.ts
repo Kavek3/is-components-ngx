@@ -55,7 +55,9 @@ export class IsDatepickerPopupComponent implements OnInit {
     }
   }
 
-  save() {
+  save(event?: Event) {
+    event?.preventDefault();
+    event?.stopPropagation();
     const { value } = this.timepickerCtrl;
     if (!value || !this.value) {
       return;

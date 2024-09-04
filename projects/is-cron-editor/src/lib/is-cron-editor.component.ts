@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnInit, Output } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnDestroy, OnInit, Output } from '@angular/core';
 import {
   AbstractControl,
   ControlValueAccessor,
@@ -9,8 +9,8 @@ import {
   Validator,
   ValidatorFn
 } from '@angular/forms';
-import { Subscription } from 'rxjs';
-import { debounceTime } from 'rxjs/operators';
+import { Subject, Subscription } from 'rxjs';
+import { debounceTime, takeUntil } from 'rxjs/operators';
 import { cronExpressionValidator, mapNumbers } from './is-cron-editor.validator';
 import { IsSelectMultipleConfig } from '@intelstudios/select';
 import { CronState } from './is-cron-editor.models';
@@ -59,7 +59,7 @@ function daySelectTypeValues() {
     multi: true
   }]
 })
-export class IsCronEditorComponent implements OnInit, ControlValueAccessor, Validator {
+export class IsCronEditorComponent implements OnInit, OnDestroy, ControlValueAccessor, Validator {
   get allowRandom(): boolean {
     return this._allowRandom;
   }
@@ -87,6 +87,8 @@ export class IsCronEditorComponent implements OnInit, ControlValueAccessor, Vali
 
   private _allowRandom = false;
   private _disabled = false;
+
+  private ends$ = new Subject();
 
   constructor(
     private cd: ChangeDetectorRef,
@@ -259,8 +261,9 @@ export class IsCronEditorComponent implements OnInit, ControlValueAccessor, Vali
 
   isSelectMultiple: IsSelectMultipleConfig = { showButtons: true };
 
+
+  private _onChangeCallback = (_: any) => { };
   onTouched: Function;
-  private _changeSubscription: Subscription = null;
   private _value: string;
   private _ignore_reading = false;
   private validatorOnChangeFn: Function = null;
@@ -289,7 +292,19 @@ export class IsCronEditorComponent implements OnInit, ControlValueAccessor, Vali
     } else {
       this.readState();
     }
-    this.cronExpressionControl.valueChanges.pipe(debounceTime(500)).subscribe((val) => this.parseState(val));
+    this.cronExpressionControl.valueChanges
+    .pipe(
+      debounceTime(500),
+      takeUntil(this.ends$)
+    )
+    .subscribe((val) => {
+      console.log('yes');
+      this.parseState(val);
+      if(this._onChangeCallback){
+        console.log('Hello');
+        this._onChangeCallback(val);
+      }
+    });
   }
 
   /**
@@ -300,7 +315,9 @@ export class IsCronEditorComponent implements OnInit, ControlValueAccessor, Vali
     Object.keys(dict).forEach(k => {
       const v = dict[k];
       if (v instanceof FormControl) {
-        v.valueChanges.subscribe(() => this.readState());
+        v.valueChanges.pipe(
+          takeUntil(this.ends$)
+        ).subscribe(() => this.readState());
       } else {
         this.subscribeToForms(v);
       }
@@ -582,7 +599,7 @@ export class IsCronEditorComponent implements OnInit, ControlValueAccessor, Vali
         break;
       case '3':
         if (this.formControl.years.specific.value && this.formControl.years.specific.value.length) {
-          this.cronState.years = this.formControl.years.specific.value.sort().map(v => `${v - 1}`).join(',');
+          this.cronState.years = this.formControl.years.specific.value.sort().map(v => `${v}`).join(',');
         } else {
           this.cronState.years = `${(new Date()).getFullYear()}`;
         }
@@ -1000,10 +1017,7 @@ export class IsCronEditorComponent implements OnInit, ControlValueAccessor, Vali
   }
 
   registerOnChange(fn: (_: any) => {}): void {
-    if (this._changeSubscription) {
-      this._changeSubscription.unsubscribe();
-    }
-    this._changeSubscription = this.cronExpressionControl.valueChanges.subscribe(fn);
+    this._onChangeCallback = fn;
   }
 
   registerOnTouched(fn: (_: any) => {}): void {
@@ -1044,6 +1058,11 @@ export class IsCronEditorComponent implements OnInit, ControlValueAccessor, Vali
 
   validate(control: AbstractControl): ValidationErrors | null {
     return this.cronValidator(control);
+  }
+
+  ngOnDestroy(): void {
+    this.ends$.next();
+    this.ends$.complete();
   }
 
 }
